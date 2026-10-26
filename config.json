@@ -1,0 +1,7 @@
+{
+  "ntfyTopic": "",
+  "ntfyServer": "https://ntfy.sh",
+  "openBrowserOnAlert": false,
+  "alertOnStoreOnlyStock": true,
+  "alertOnOrderable": true
+}
