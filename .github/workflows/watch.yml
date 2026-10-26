@@ -1,0 +1,62 @@
+name: PS5 Pro stock watcher
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'      # every 5 minutes (GitHub may delay runs a few minutes at busy times)
+  workflow_dispatch:
+    inputs:
+      test_alert:
+        description: 'Only send a test notification to your phone'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write              # only used for the monthly keep-alive commit
+
+concurrency:
+  group: ps5-watcher
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore memory of the last check
+        uses: actions/cache/restore@v4
+        with:
+          path: state
+          key: state-${{ github.run_id }}
+          restore-keys: state-
+
+      - name: Check stock
+        shell: pwsh
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          PS5W_STATE_DIR: ${{ github.workspace }}/state
+          TEST_ALERT: ${{ inputs.test_alert }}
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:PS5W_STATE_DIR | Out-Null
+          if (-not $env:NTFY_TOPIC) { Write-Host '::warning::NTFY_TOPIC secret is not set - no phone alerts will be sent' }
+          if ($env:TEST_ALERT -eq 'true') { ./ps5-watcher.ps1 -TestAlert } else { ./ps5-watcher.ps1 -ShowStatus }
+
+      - name: Save memory for the next check
+        if: always() && hashFiles('state/state.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: state
+          key: state-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Keep the schedule alive
+        # GitHub pauses scheduled workflows in repos with no commits for 60 days
+        if: github.event_name == 'schedule'
+        run: |
+          last=$(git log -1 --format=%ct)
+          if [ $(( $(date +%s) - last )) -gt 2592000 ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit --allow-empty -m "keep-alive"
+            git push
+          fi
